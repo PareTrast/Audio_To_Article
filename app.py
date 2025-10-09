@@ -1,9 +1,10 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import openai
 import os
 from dotenv import load_dotenv
 from audio_recorder_streamlit import audio_recorder
+import tempfile
+import ffmpeg # ⬅️ New import
 
 # --- User Key Input ---
 with st.sidebar:
@@ -24,17 +25,39 @@ if user_openai_key:
         openai.models.list()
         st.sidebar.success("API Key is valid!")
 
+        # --- NEW Function: Convert Audio to MP3 using ffmpeg-python ---
+        def convert_to_mp3(input_path):
+            try:
+                output_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3').name
+                # The .run() method automatically executes the ffmpeg command
+                ffmpeg.input(input_path).output(output_path, acodec='libmp3lame').run(overwrite_output=True)
+                return output_path
+            except ffmpeg.Error as e:
+                st.error(f"FFmpeg error: {e.stderr.decode('utf8')}")
+                return None
+
         # --- Core Functionality: Transcribing Audio ---
         def transcribe_audio(audio_file_path):
+            """
+            Transcribes an audio file into text using OpenAI's Whisper model.
+            """
             try:
-                with open(audio_file_path, "rb") as audio_file:
+                # Convert the file to a stable MP3 format before transcribing
+                mp3_path = convert_to_mp3(audio_file_path)
+                if not mp3_path:
+                    return None
+
+                with open(mp3_path, "rb") as audio_file:
                     transcript = openai.audio.transcriptions.create(
                         model="whisper-1",
                         file=audio_file
                     )
+
+                # Clean up the temporary MP3 file
+                os.remove(mp3_path)
                 return transcript.text
-            except openai.OpenAIError as e:
-                st.error(f"An error occurred with the OpenAI API: {e}")
+            except Exception as e:
+                st.error(f"Failed to transcribe audio: {e}")
                 return None
 
         # --- New Functionality: Formatting Text based on type ---
@@ -143,16 +166,16 @@ if user_openai_key:
             )
             if uploaded_file:
                 with st.spinner("Transcribing uploaded audio..."):
-                    # Use a secure and simple temporary filename
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_audio_file:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.type.split('/')[1]}") as temp_audio_file:
                         temp_audio_file.write(uploaded_file.getbuffer())
                         temp_file_path = temp_audio_file.name
 
-                    st.audio(uploaded_file, format='audio/wav')
+                    st.audio(uploaded_file, format=uploaded_file.type)
                     transcribed_text = transcribe_audio(temp_file_path)
                     st.session_state.transcribed_text = transcribed_text
+
                     os.remove(temp_file_path)
+
                     if transcribed_text:
                         st.success("Transcription complete!")
                         st.subheader("Raw Transcription")
@@ -168,14 +191,17 @@ if user_openai_key:
                 icon_size="3x"
             )
             if audio_bytes:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio_file:
+                    temp_audio_file.write(audio_bytes)
+                    temp_file_path = temp_audio_file.name
+
                 with st.spinner("Transcribing live audio..."):
-                    temp_file_path = "temp_recorded_audio.wav"
-                    with open(temp_file_path, "wb") as f:
-                        f.write(audio_bytes)
                     st.audio(audio_bytes, format="audio/wav")
                     transcribed_text = transcribe_audio(temp_file_path)
                     st.session_state.transcribed_text = transcribed_text
+
                     os.remove(temp_file_path)
+
                 if transcribed_text:
                     st.success("Transcription complete!")
                     st.subheader("Raw Transcription")
@@ -204,10 +230,3 @@ if user_openai_key:
 
 else:
     st.warning("Please enter your OpenAI API key in the sidebar to begin.")
-
-st.markdown("I hope you find this tool useful! If you do consider starring this repository on GitHub, and supporting me on Ko-fi. Thank you!")
-
-kofi_html = """
-<script type='text/javascript' src='https://storage.ko-fi.com/cdn/widget/Widget_2.js'></script><script type='text/javascript'>kofiwidget2.init('Support me on Ko-fi', '#72a4f2', 'Q5Q11L449E');kofiwidget2.draw();</script>
-"""
-components.html(kofi_html, height=70, width=220)
