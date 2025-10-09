@@ -29,7 +29,7 @@ if not openai.api_key:
     st.stop()
 else:
     # If a key is provided, continue with the rest of the application
-    st.sidebar.success("API Key is valid! 🎉")
+    st.sidebar.success("API Key is valid!")
 
     # --- Core Functionality: Transcribing Audio ---
     def transcribe_audio(audio_file_path):
