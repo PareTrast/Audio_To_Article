@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 from audio_recorder_streamlit import audio_recorder
 import tempfile
-import ffmpeg # ⬅️ New import
+import ffmpeg
 
 # --- User Key Input ---
 with st.sidebar:
@@ -17,6 +17,18 @@ with st.sidebar:
         help="You can get your key from https://platform.openai.com/account/api-keys"
     )
 
+    st.markdown("---")
+    st.header("Creativity Level")
+    st.markdown("Lower values stick closer to the original content.")
+    st.markdown("Higher values allow for more creative re-phrasing.")
+    temperature_value = st.slider(
+        "Adjust Creativity (Temperature)",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.7,
+        step=0.1
+    )
+
 # --- App Logic: API Key Validation ---
 if user_openai_key:
     openai.api_key = user_openai_key
@@ -24,17 +36,6 @@ if user_openai_key:
     try:
         openai.models.list()
         st.sidebar.success("API Key is valid!")
-
-        # --- NEW Function: Convert Audio to MP3 using ffmpeg-python ---
-        def convert_to_mp3(input_path):
-            try:
-                output_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3').name
-                # The .run() method automatically executes the ffmpeg command
-                ffmpeg.input(input_path).output(output_path, acodec='libmp3lame').run(overwrite_output=True)
-                return output_path
-            except ffmpeg.Error as e:
-                st.error(f"FFmpeg error: {e.stderr.decode('utf8')}")
-                return None
 
         # --- Core Functionality: Transcribing Audio ---
         def transcribe_audio(audio_file_path):
@@ -61,7 +62,7 @@ if user_openai_key:
                 return None
 
         # --- New Functionality: Formatting Text based on type ---
-        def format_text(raw_text, format_type, openai_model="gpt-4o"):
+        def format_text(raw_text, format_type, temperature, openai_model="gpt-4o"):
             prompts = {
                 "Article": f"""
                 You are an expert content writer. Your task is to take the following raw text from an audio transcription and format it into a well-structured, easy-to-read blog post or article.
@@ -141,11 +142,21 @@ if user_openai_key:
                         {"role": "system", "content": "You are a helpful and professional writing assistant."},
                         {"role": "user", "content": selected_prompt}
                     ],
-                    temperature=0.7
+                    temperature=temperature # ⬅️ Pass the slider value here
                 )
                 return response.choices[0].message.content
             except openai.OpenAIError as e:
                 st.error(f"An error occurred with the OpenAI API: {e}")
+                return None
+
+        # --- Helper for ffmpeg ---
+        def convert_to_mp3(input_path):
+            try:
+                output_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3').name
+                ffmpeg.input(input_path).output(output_path, acodec='libmp3lame').run(overwrite_output=True)
+                return output_path
+            except ffmpeg.Error as e:
+                st.error(f"FFmpeg error: {e.stderr.decode('utf8')}")
                 return None
 
         # --- Streamlit App Interface ---
@@ -181,6 +192,15 @@ if user_openai_key:
                         st.subheader("Raw Transcription")
                         st.write(transcribed_text)
 
+                        # Download button for the raw transcript
+                        st.download_button(
+                            label="Download Raw Transcript",
+                            data=transcribed_text,
+                            file_name="raw_transcript.txt",
+                            mime="text/plain"
+                        )
+
+
         with tab2:
             st.subheader("2. Record Live Audio")
             st.markdown("Click the button to start and stop recording. The recording will start as soon as your browser grants permission.")
@@ -207,6 +227,14 @@ if user_openai_key:
                     st.subheader("Raw Transcription")
                     st.write(transcribed_text)
 
+                    # Download button for the raw transcript
+                    st.download_button(
+                        label="Download Raw Transcript",
+                        data=transcribed_text,
+                        file_name="raw_transcript.txt",
+                        mime="text/plain"
+                    )
+
         if st.session_state.transcribed_text:
             st.markdown("---")
             st.subheader("3. Select Format and Generate")
@@ -218,11 +246,20 @@ if user_openai_key:
 
             if st.button(f"Generate {format_type}"):
                 with st.spinner(f"Generating {format_type}..."):
-                    formatted_content = format_text(st.session_state.transcribed_text, format_type)
+                    formatted_content = format_text(st.session_state.transcribed_text, format_type, temperature_value)
+
                     if formatted_content:
                         st.success(f"{format_type} generation complete!")
                         st.markdown(f"## Your Formatted {format_type}")
                         st.markdown(formatted_content)
+
+                        # Download button for the formatted content
+                        st.download_button(
+                            label=f"Download {format_type}",
+                            data=formatted_content,
+                            file_name=f"{format_type.lower().replace(' ', '_')}.md",
+                            mime="text/markdown"
+                        )
 
     except openai.AuthenticationError as e:
         st.sidebar.error("Invalid API Key. Please check your key and try again.")
